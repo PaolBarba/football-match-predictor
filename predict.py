@@ -1,17 +1,26 @@
-import dataset
-import betting
-import tensorflow as tf
-import numpy as np
+"""Predicts the outcome of football matches using a DNNClassifier."""
+
 import csv
 import logging
+from pathlib import Path
+
+import numpy as np
+import tensorflow as tf
+
+import model as dataset
+import scripts.betting as betting
 
 TRAINING_SET_FRACTION = 0.95
 
-# Set up logging
+
+
 logging.basicConfig(level=logging.INFO)
 
-def main(argv):
-    data = dataset.Dataset('data/book.csv')
+
+def main():
+    """Create for the script."""
+    # Load the dataset
+    data = dataset.Dataset("data/book.csv")
 
     train_results_len = int(TRAINING_SET_FRACTION * len(data.processed_results))
     train_results = data.processed_results[:train_results_len]
@@ -21,16 +30,16 @@ def main(argv):
         features = {}
 
         for result in results:
-            for key in result.keys():
+            for key in result:
                 if key not in features:
                     features[key] = []
 
                 features[key].append(result[key])
 
-        for key in features.keys():
+        for key in features:
             features[key] = np.array(features[key])
 
-        return features, features['result']
+        return features, features["result"]
 
     train_features, train_labels = map_results(train_results)
     test_features, test_labels = map_results(test_results)
@@ -40,52 +49,62 @@ def main(argv):
         dataset = tf.data.Dataset.from_tensor_slices((features, labels))
         if shuffle:
             dataset = dataset.shuffle(buffer_size=len(labels))
-        dataset = dataset.batch(batch_size).repeat(num_epochs)
-        return dataset
+        return dataset.batch(batch_size).repeat(num_epochs)
 
-    train_input_fn = lambda: make_input_fn(train_features, train_labels, batch_size=500, num_epochs=None, shuffle=True)
-    test_input_fn = lambda: make_input_fn(test_features, test_labels, batch_size=500, num_epochs=1, shuffle=False)
+    def train_input_fn():
+        return make_input_fn(train_features, train_labels, batch_size=500, num_epochs=None, shuffle=True)
+    def test_input_fn():
+        return make_input_fn(test_features, test_labels, batch_size=500, num_epochs=1, shuffle=False)
 
     # Define feature columns
     feature_columns = []
 
-    for mode in ['home', 'away']:
+    for mode in ["home", "away"]:
         feature_columns += [
-            tf.feature_column.numeric_column(key=f'{mode}-wins'),
-            tf.feature_column.numeric_column(key=f'{mode}-draws'),
-            tf.feature_column.numeric_column(key=f'{mode}-losses'),
-            tf.feature_column.numeric_column(key=f'{mode}-goals'),
-            tf.feature_column.numeric_column(key=f'{mode}-opposition-goals'),
-            tf.feature_column.numeric_column(key=f'{mode}-shots'),
-            tf.feature_column.numeric_column(key=f'{mode}-shots-on-target'),
-            tf.feature_column.numeric_column(key=f'{mode}-opposition-shots'),
-            tf.feature_column.numeric_column(key=f'{mode}-opposition-shots-on-target'),
+            tf.feature_column.numeric_column(key=f"{mode}-wins"),
+            tf.feature_column.numeric_column(key=f"{mode}-draws"),
+            tf.feature_column.numeric_column(key=f"{mode}-losses"),
+            tf.feature_column.numeric_column(key=f"{mode}-goals"),
+            tf.feature_column.numeric_column(key=f"{mode}-opposition-goals"),
+            tf.feature_column.numeric_column(key=f"{mode}-shots"),
+            tf.feature_column.numeric_column(key=f"{mode}-shots-on-target"),
+            tf.feature_column.numeric_column(key=f"{mode}-opposition-shots"),
+            tf.feature_column.numeric_column(key=f"{mode}-opposition-shots-on-target"),
         ]
 
     # Define the DNNClassifier
     model = tf.estimator.DNNClassifier(
-        model_dir='model/',
+        model_dir="model/",
         hidden_units=[10],
         feature_columns=feature_columns,
         n_classes=3,
-        label_vocabulary=['H', 'D', 'A'],
-        optimizer=tf.optimizers.Adagrad(learning_rate=0.1, initial_accumulator_value=0.1, l1_regularization_strength=0.001)
+        label_vocabulary=["H", "D", "A"],
+        optimizer=tf.optimizers.Adagrad(
+            learning_rate=0.1, initial_accumulator_value=0.1, l1_regularization_strength=0.001
+        ),
     )
 
     # Open CSV log for training results
-    with open('training-log.csv', 'w') as stream:
+    with Path.open("training-log.csv", "w") as stream:
         csvwriter = csv.writer(stream)
-        csvwriter.writerow(['Steps', 'Accuracy', 'Average Loss', 'Performance'])  # Add header
+        csvwriter.writerow(["Steps", "Accuracy", "Average Loss", "Performance"])  # Add header
 
-        for i in range(0, 200):
+        for i in range(200):
             model.train(input_fn=train_input_fn, steps=100)
             evaluation_result = model.evaluate(input_fn=test_input_fn)
 
             predictions = list(model.predict(input_fn=test_input_fn))
             prediction_result = betting.test_betting_stategy(predictions, test_features, test_labels)
 
-            csvwriter.writerow([(i + 1) * 100, evaluation_result['accuracy'], evaluation_result['average_loss'], prediction_result['performance']])
+            csvwriter.writerow(
+                [
+                    (i + 1) * 100,
+                    evaluation_result["accuracy"],
+                    evaluation_result["average_loss"],
+                    prediction_result["performance"],
+                ]
+            )
 
-if __name__ == '__main__':
-    # TensorFlow 2.x does not have tf.app.run; simply call the main function.
-    main(None)
+
+if __name__ == "__main__":
+    main()
